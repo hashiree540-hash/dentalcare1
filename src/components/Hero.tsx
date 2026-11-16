@@ -7,6 +7,11 @@ import { hospital } from '../config/hospital';
 
 gsap.registerPlugin(ScrollTrigger);
 
+// Prevent mobile browser address bar collapse/expansion from triggering jittery recalculations
+ScrollTrigger.config({
+  ignoreMobileResize: true,
+});
+
 const DESKTOP_VIDEO_URL = '/videos/Dentist_treating_patient_in_clinic_f175d9b9_1080p.mp4';
 const MOBILE_VIDEO_URL = '/videos/Dentist_treating_patient_in_clinic_720p.mp4';
 
@@ -18,7 +23,7 @@ export const Hero: React.FC = () => {
   const ctaRef = useRef<HTMLDivElement>(null);
   const scrollCueRef = useRef<HTMLDivElement>(null);
 
-  // Initial video source: use lightweight 720p on mobile to avoid downloading 1080p asset
+  // Responsive video source: lightweight 720p All-Intra on mobile, 1080p on desktop
   const isInitialMobile = typeof window !== 'undefined' ? window.innerWidth < 768 : false;
   const initialVideoSrc = isInitialMobile ? MOBILE_VIDEO_URL : DESKTOP_VIDEO_URL;
 
@@ -32,6 +37,11 @@ export const Hero: React.FC = () => {
 
     if (!heroEl || !videoEl || !contentEl || !headingEl || !ctaEl) return;
 
+    // Ensure all mobile inline attributes are set on the DOM node for iOS WebKit & Android Chrome
+    videoEl.setAttribute('playsinline', 'true');
+    videoEl.setAttribute('webkit-playsinline', 'true');
+    videoEl.setAttribute('x5-playsinline', 'true');
+
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     if (prefersReducedMotion) {
@@ -43,60 +53,70 @@ export const Hero: React.FC = () => {
     const isCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
     const isTouchDevice = isMobileViewport || isCoarsePointer;
 
-    // Mobile frame delta threshold avoids seeks smaller than ~1 video frame (0.033s)
-    const frameDeltaThreshold = isTouchDevice ? 0.033 : 0.014;
-    const activeVideoUrl = isMobileViewport ? MOBILE_VIDEO_URL : DESKTOP_VIDEO_URL;
-    const abortController = new AbortController();
+    // Mobile frame delta threshold: ~1 video frame (0.025s) avoids redundant seeks during touch swipes
+    const frameDeltaThreshold = isTouchDevice ? 0.025 : 0.014;
 
     let ctx: gsap.Context | null = null;
     let rafId: number | null = null;
-    let blobUrl: string | null = null;
     let isUnmounted = false;
     let isUnlocked = false;
-    let fallbackMode = false;
 
     // Mutable scrub state (zero React state updates during scroll)
     let videoDuration = videoEl.duration && Number.isFinite(videoEl.duration) ? videoEl.duration : 0;
     let targetTime = 0;
     let lastRequestedSeek = -1;
     let seekStartTimestamp = 0;
-    let slowSeekCount = 0;
+
+    // Hardware-accelerated seek function: uses fastSeek on WebKit/Chromium for instant keyframe jumps
+    const performSeek = (time: number) => {
+      lastRequestedSeek = time;
+      seekStartTimestamp = performance.now();
+      if ('fastSeek' in videoEl && typeof (videoEl as any).fastSeek === 'function') {
+        (videoEl as any).fastSeek(time);
+      } else {
+        videoEl.currentTime = time;
+      }
+    };
 
     // Unlock / warm up video hardware decoder (crucial for mobile Safari & Android touch scrubbing)
     const unlockVideo = () => {
       if (isUnlocked || !videoEl || isUnmounted) return;
-      isUnlocked = true;
       const playPromise = videoEl.play();
       if (playPromise !== undefined) {
         playPromise
           .then(() => {
-            if (!fallbackMode && videoEl) {
+            isUnlocked = true;
+            if (videoEl && !isUnmounted) {
               videoEl.pause();
             }
           })
           .catch(() => {
-            // Autoplay restrictions or low-power mode handled safely
+            // Low-power or autoplay restrictions handled cleanly
           });
       }
     };
 
+    // Listen to touch/pointer interactions to immediately wake the video hardware decoder
     window.addEventListener('touchstart', unlockVideo, { once: true, passive: true });
+    window.addEventListener('pointerdown', unlockVideo, { once: true, passive: true });
     window.addEventListener('wheel', unlockVideo, { once: true, passive: true });
     window.addEventListener('scroll', unlockVideo, { once: true, passive: true });
 
-    // Synchronize video currentTime strictly inside requestAnimationFrame with seeking guard
+    // Synchronize video currentTime strictly inside requestAnimationFrame with watchdog guard
     const syncVideoFrame = () => {
       rafId = null;
-      if (isUnmounted || fallbackMode || videoDuration <= 0) return;
+      if (isUnmounted || videoDuration <= 0) return;
 
-      if (videoEl.readyState >= 2 && !videoEl.seeking) {
+      // Watchdog: If seeking gets stalled for >100ms on mobile, force-unlock so next frame proceeds
+      const isSeekingStalled = videoEl.seeking && performance.now() - seekStartTimestamp > 100;
+      const isDecoderReady = videoEl.readyState >= 2 && (!videoEl.seeking || isSeekingStalled);
+
+      if (isDecoderReady) {
         const diff = Math.abs(targetTime - videoEl.currentTime);
         const seekDiff = Math.abs(targetTime - lastRequestedSeek);
 
         if (diff > frameDeltaThreshold && seekDiff > 0.01) {
-          lastRequestedSeek = targetTime;
-          seekStartTimestamp = performance.now();
-          videoEl.currentTime = targetTime;
+          performSeek(targetTime);
         }
       }
 
@@ -107,31 +127,14 @@ export const Hero: React.FC = () => {
     };
 
     const scheduleFrameSync = () => {
-      if (rafId === null && !isUnmounted && !fallbackMode) {
+      if (rafId === null && !isUnmounted) {
         rafId = requestAnimationFrame(syncVideoFrame);
       }
     };
 
-    // Monitor seek completion to immediately process any queued targetTime & detect slow mobile decoders
+    // Monitor seek completion to immediately process any queued targetTime
     const handleSeeked = () => {
-      if (seekStartTimestamp > 0) {
-        const seekLatency = performance.now() - seekStartTimestamp;
-        seekStartTimestamp = 0;
-
-        // Graceful fallback if an ultra low-power mobile device consistently stalls (>350ms per frame seek)
-        if (isTouchDevice && seekLatency > 350) {
-          slowSeekCount += 1;
-          if (slowSeekCount >= 4) {
-            fallbackMode = true;
-            videoEl.loop = true;
-            videoEl.play().catch(() => {});
-            return;
-          }
-        } else {
-          slowSeekCount = 0;
-        }
-      }
-
+      seekStartTimestamp = 0;
       if (Math.abs(targetTime - videoEl.currentTime) > frameDeltaThreshold) {
         scheduleFrameSync();
       }
@@ -139,41 +142,7 @@ export const Hero: React.FC = () => {
 
     videoEl.addEventListener('seeked', handleSeeked);
 
-    // Pre-buffer video into memory as a Blob URL so seeking never hits network/range stalls
-    const bufferVideoInMemory = async () => {
-      try {
-        const response = await fetch(activeVideoUrl, { signal: abortController.signal });
-        if (!response.ok) return;
-        const blob = await response.blob();
-        if (isUnmounted) return;
-
-        blobUrl = URL.createObjectURL(blob);
-        const resumeTime = videoEl.currentTime || targetTime;
-
-        const restoreTimeOnSwap = () => {
-          if (isUnmounted) return;
-          if (videoEl.duration && Number.isFinite(videoEl.duration)) {
-            videoDuration = videoEl.duration;
-          }
-          try {
-            videoEl.currentTime = Math.min(resumeTime, videoDuration || resumeTime);
-          } catch {
-            // Ignore seek clamp errors
-          }
-          unlockVideo();
-        };
-
-        videoEl.addEventListener('loadedmetadata', restoreTimeOnSwap, { once: true });
-        videoEl.src = blobUrl;
-        videoEl.load();
-      } catch {
-        // Direct URL streaming remains active if fetch is aborted or unavailable
-      }
-    };
-
-    bufferVideoInMemory();
-
-    // Initialize GSAP entrance + single pinned ScrollTrigger once metadata is ready
+    // Initialize GSAP entrance + pinned ScrollTrigger
     const initTimeline = () => {
       if (isUnmounted || ctx) return;
 
@@ -187,20 +156,20 @@ export const Hero: React.FC = () => {
           videoEl.currentTime = 0.001;
         }
       } catch {
-        // Ignore
+        // Ignore seek clamp errors
       }
 
       ctx = gsap.context(() => {
         // Smooth initial entrance animations
         gsap.fromTo(
           headingEl,
-          { opacity: 0, y: isTouchDevice ? 20 : 28, scale: 0.96 },
+          { opacity: 0, y: isTouchDevice ? 18 : 28, scale: 0.96 },
           { opacity: 1, y: 0, scale: 1, duration: 1.15, ease: 'power3.out', delay: 0.1 }
         );
 
         gsap.fromTo(
           ctaEl,
-          { opacity: 0, y: isTouchDevice ? 16 : 22, scale: 0.97 },
+          { opacity: 0, y: isTouchDevice ? 14 : 22, scale: 0.97 },
           { opacity: 1, y: 0, scale: 1, duration: 1.0, ease: 'power3.out', delay: 0.3 }
         );
 
@@ -211,12 +180,14 @@ export const Hero: React.FC = () => {
           scrollTrigger: {
             trigger: heroEl,
             start: 'top top',
-            // Mobile uses a responsive 140% pin to feel natural on touch scrolls; desktop retains 200%
-            end: isTouchDevice ? '+=140%' : '+=200%',
+            // Mobile: 110% pin distance provides a natural, cinematic swipe without trapping the user
+            // Desktop: retains original 200% pin distance
+            end: isTouchDevice ? '+=110%' : '+=200%',
             pin: true,
-            // Mobile scrub 0.8 smoothly absorbs finger flick deceleration; desktop retains 0.5
-            scrub: isTouchDevice ? 0.8 : 0.5,
-            anticipatePin: 1,
+            // Mobile: 0.35 gives responsive, instant finger-tracking without lagging behind the thumb
+            // Desktop: retains 0.5 for smooth wheel dampening
+            scrub: isTouchDevice ? 0.35 : 0.5,
+            anticipatePin: isTouchDevice ? 0 : 1,
             invalidateOnRefresh: true,
           },
         });
@@ -229,7 +200,7 @@ export const Hero: React.FC = () => {
             ease: 'none',
             duration: 1,
             onUpdate: () => {
-              if (videoDuration > 0 && !fallbackMode) {
+              if (videoDuration > 0) {
                 targetTime = Math.min(Math.max(scrubState.progress * videoDuration, 0.001), videoDuration - 0.02);
                 scheduleFrameSync();
               }
@@ -243,10 +214,10 @@ export const Hero: React.FC = () => {
           contentEl,
           {
             opacity: 0,
-            y: isTouchDevice ? -40 : -60,
+            y: isTouchDevice ? -36 : -60,
             scale: 0.96,
             ease: 'power2.inOut',
-            duration: 0.55,
+            duration: isTouchDevice ? 0.45 : 0.55,
           },
           0
         );
@@ -283,13 +254,13 @@ export const Hero: React.FC = () => {
 
     return () => {
       isUnmounted = true;
-      abortController.abort();
       if (rafId !== null) {
         cancelAnimationFrame(rafId);
       }
       videoEl.removeEventListener('loadedmetadata', handleInitialMetadata);
       videoEl.removeEventListener('seeked', handleSeeked);
       window.removeEventListener('touchstart', unlockVideo);
+      window.removeEventListener('pointerdown', unlockVideo);
       window.removeEventListener('wheel', unlockVideo);
       window.removeEventListener('scroll', unlockVideo);
 
@@ -301,10 +272,6 @@ export const Hero: React.FC = () => {
           st.kill(true);
         }
       });
-
-      if (blobUrl) {
-        URL.revokeObjectURL(blobUrl);
-      }
     };
   }, []);
 
@@ -313,13 +280,14 @@ export const Hero: React.FC = () => {
     <div className="relative w-full max-w-full overflow-hidden">
       <section
         ref={heroRef}
-        className="relative w-full h-screen h-[100dvh] min-h-[560px] sm:min-h-[600px] overflow-hidden bg-[#071E33]"
+        className="relative w-full h-screen h-[100dvh] min-h-[540px] sm:min-h-[600px] overflow-hidden bg-[#071E33]"
         aria-label="Dental Care Hero"
       >
         {/*
           Full-Screen Dental Treatment Video Background
           - Mobile focal positioning: object-[44%_center] centers both dentist and patient cleanly
           - Desktop / tablet: sm:object-center retains original desktop alignment
+          - Direct faststart HTTP 206 streaming guarantees zero blob-swap reload flash
         */}
         <video
           ref={videoRef}
@@ -345,11 +313,11 @@ export const Hero: React.FC = () => {
         {/* Centered Content Overlay */}
         <div
           ref={contentRef}
-          className="relative z-10 h-full max-w-5xl mx-auto px-5 sm:px-8 flex flex-col items-center justify-center text-center pt-8 sm:pt-12 will-change-[transform,opacity]"
+          className="relative z-10 h-full max-w-5xl mx-auto px-5 sm:px-8 flex flex-col items-center justify-center text-center pt-6 sm:pt-12 will-change-[transform,opacity]"
         >
           {/*
             Main Luxury Serif Heading
-            - clamp(2.1rem, 6.5vw, 4.5rem) smoothly scales from 33.6px on mobile (fits 2 lines, no overflow)
+            - clamp(2.1rem, 6.5vw, 4.5rem) smoothly scales from 33.6px on mobile (fits 2 clean lines, no overflow)
               up to 72px (lg:text-7xl) on desktop, preserving desktop exact sizing
           */}
           <h1
