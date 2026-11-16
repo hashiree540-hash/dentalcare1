@@ -13,7 +13,7 @@ ScrollTrigger.config({
 });
 
 const DESKTOP_VIDEO_URL = '/videos/Dentist_treating_patient_in_clinic_f175d9b9_1080p.mp4';
-const MOBILE_VIDEO_URL = '/videos/Dentist_treating_patient_in_clinic_720p.mp4';
+const MOBILE_VIDEO_URL = '/videos/Dentist_treating_patient_in_clinic_mobile_9_16.mp4';
 
 export const Hero: React.FC = () => {
   const heroRef = useRef<HTMLElement>(null);
@@ -23,7 +23,7 @@ export const Hero: React.FC = () => {
   const ctaRef = useRef<HTMLDivElement>(null);
   const scrollCueRef = useRef<HTMLDivElement>(null);
 
-  // Responsive video source: lightweight 720p All-Intra on mobile, 1080p on desktop
+  // Responsive video source: dedicated 9:16 portrait video on mobile, 16:9 1080p on desktop
   const isInitialMobile = typeof window !== 'undefined' ? window.innerWidth < 768 : false;
   const initialVideoSrc = isInitialMobile ? MOBILE_VIDEO_URL : DESKTOP_VIDEO_URL;
 
@@ -285,9 +285,9 @@ export const Hero: React.FC = () => {
       >
         {/*
           Full-Screen Dental Treatment Video Background
-          - Mobile focal positioning: object-[44%_center] centers both dentist and patient cleanly
-          - Desktop / tablet: sm:object-center retains original desktop alignment
-          - Direct faststart HTTP 206 streaming guarantees zero blob-swap reload flash
+          - Mobile: Native 9:16 portrait video (720x1280 All-Intra) perfectly fills mobile screens
+          - Desktop: Original 16:9 1080p video for widescreen cinematic presentation
+          - Direct faststart HTTP 206 streaming guarantees instantaneous scrubbing
         */}
         <video
           ref={videoRef}
@@ -295,7 +295,7 @@ export const Hero: React.FC = () => {
           muted
           playsInline
           preload="auto"
-          className="absolute inset-0 w-full h-full object-cover object-[44%_center] sm:object-center pointer-events-none select-none transform-gpu will-change-transform"
+          className="absolute inset-0 w-full h-full object-cover object-center pointer-events-none select-none transform-gpu will-change-transform"
         />
 
         {/* Subtle dark gradient overlay for luxury mood & crisp white text contrast */}
