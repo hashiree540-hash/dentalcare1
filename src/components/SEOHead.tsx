@@ -46,6 +46,7 @@ export const SEOHead: React.FC<SEOHeadProps> = ({
       "name": hospital.name,
       "image": "https://images.unsplash.com/photo-1629909613654-28e377c37b09?auto=format&fit=crop&w=1200&q=80",
       "telephone": hospital.phone,
+      "email": hospital.email,
       "url": window.location.origin,
       "address": {
         "@type": "PostalAddress",

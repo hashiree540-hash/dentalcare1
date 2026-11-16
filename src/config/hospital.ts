@@ -15,11 +15,12 @@ export const hospital = {
   displayPhone: "+91 7510885193",
   whatsapp: "917510885193",
   whatsappUrl: "https://wa.me/917510885193",
+  email: "hashiktp12@gmail.com",
   
   // Explicitly marked editable placeholders as instructed
   // (Never invent a street address, email, or exact working hours)
   addressPlaceholder: "Malappuram City Center, Malappuram, Kerala 676505, India (Exact street address to be updated)",
-  emailPlaceholder: "info@dentalcaremalappuram.com (Hospital official email to be configured)",
+  emailPlaceholder: "hashiktp12@gmail.com",
   workingHours: [
     { days: "Monday - Saturday", hours: "9:00 AM – 7:30 PM (Clinic standard hours)" },
     { days: "Sunday", hours: "10:00 AM – 2:00 PM (By Appointment)" },

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { MapPin, Phone, MessageCircle, Clock, ArrowRight, ShieldCheck, Heart } from 'lucide-react';
+import { MapPin, Phone, MessageCircle, Clock, ArrowRight, ShieldCheck, Heart, Mail } from 'lucide-react';
 import { Logo } from './Logo';
 import { hospital } from '../config/hospital';
 
@@ -229,6 +229,19 @@ export const Footer: React.FC = () => {
                     +91 7510885193
                   </a>
                   <p className="text-xs text-white/60">WhatsApp appointment support</p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2.5">
+                <Mail className="w-4 h-4 text-gold shrink-0 mt-1" />
+                <div>
+                  <a
+                    href={`mailto:${hospital.email}`}
+                    className="text-white/80 hover:text-white font-medium transition-colors break-all"
+                  >
+                    {hospital.email}
+                  </a>
+                  <p className="text-xs text-white/60">Official email support</p>
                 </div>
               </div>
 

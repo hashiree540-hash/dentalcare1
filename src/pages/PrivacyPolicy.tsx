@@ -85,7 +85,7 @@ export const PrivacyPolicy: React.FC = () => {
                 6. Contact Concerning Privacy
               </h2>
               <p className="text-charcoal-muted">
-                For questions regarding this policy or to request updates to your contact records, please contact our clinic at {hospital.phone} or visit our location in Malappuram, Kerala, India.
+                For questions regarding this policy or to request updates to your contact records, please contact our clinic at {hospital.phone}, email us at <a href={`mailto:${hospital.email}`} className="text-maroon underline font-medium">{hospital.email}</a>, or visit our location in Malappuram, Kerala, India.
               </p>
             </div>
           </div>
